@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>擺攤 Dashboard（可疑行為分析）</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<!-- MD5 for login -->
+<script src="https://cdn.jsdelivr.net/npm/blueimp-md5/js/md5.min.js"></script>
+
+<style>
+body { font-family: Arial; margin: 20px; }
+#loginBox { max-width: 400px; margin:auto; }
+#dash { display:none; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+td, th { border: 1px solid #ccc; padding: 6px; }
+
+.tag { padding:4px 8px; border-radius:4px; color:white; }
+.red { background:#c9302c; }
+.yellow { background:#f0ad4e; }
+.green { background:#5cb85c; }
+
+.uuid-row:hover { background:#eef; cursor:pointer; }
+
+#map { height: 350px; margin-top:20px; }
+
+.block-btn { padding: 5px 10px; cursor:pointer; background:#d9534f; color:white; }
+.unblock-btn { padding: 5px 10px; cursor:pointer; background:#5bc0de; color:white; }
+</style>
+
+</head>
+<body>
+
+<h2>擺攤 Dashboard（可疑行為分析 + 黑名單）</h2>
+
+<!-- Login -->
+<div id="loginBox">
+    <h3>登入</h3>
+    <input id="acc" placeholder="帳號：admin123"/><br>
+    <input id="pwd" type="password" placeholder="密碼：aa123456"/><br>
+    <button onclick="login()">登入</button>
+</div>
+
+<!-- Dashboard -->
+<div id="dash">
+
+    <h3>訪客分析</h3>
+
+    <select id="rangeSel">
+        <option value="1">1 天</option>
+        <option value="3">3 天</option>
+        <option value="7" selected>7 天</option>
+        <option value="30">30 天</option>
+        <option value="all">全部</option>
+    </select>
+
+    <button onclick="loadLogs()">重新整理</button>
+
+    <div id="summary" style="margin-top:10px;">讀取中…</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>UUID</th>
+                <th>訪問次數</th>
+                <th>最近距離</th>
+                <th>是否進入</th>
+                <th>可疑度</th>
+                <th>封鎖</th>
+            </tr>
+        </thead>
+        <tbody id="uuidTable"></tbody>
+    </table>
+
+    <h3>地圖視覺化（模糊定位）</h3>
+    <div id="map"></div>
+
+</div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
+
+const supabase = createClient(
+  "https://bbbvgqlvhzgccylqszoh.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJiYnZncWx2aHpnY2N5bHFzem9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyOTE2NzQsImV4cCI6MjA4MDg2NzY3NH0.iuzwUbrWfHm0quV05qBJTFIO4_-uJMSd4DT_1U9awgk"
+);
+
+/* ---------------------------------------------------
+   1. Login
+--------------------------------------------------- */
+window.login = function () {
+    const acc = document.getElementById("acc").value;
+    const pwd = document.getElementById("pwd").value;
+
+    if (acc === "admin123" && md5(pwd) === md5("aa123456")) {
+        document.getElementById("loginBox").style.display = "none";
+        document.getElementById("dash").style.display = "block";
+        loadLogs();
+    } else {
+        alert("帳號或密碼錯誤");
+    }
+};
+
+/* ---------------------------------------------------
+   2. 取得封鎖名單
+--------------------------------------------------- */
+async function getBlockedUUIDs() {
+    const { data } = await supabase.from("blocked_uuids").select("uuid");
+    return data ? data.map(x => x.uuid) : [];
+}
+
+/* 封鎖 */
+window.blockUUID = async function (uuid) {
+    await supabase.from("blocked_uuids").insert({ uuid });
+    alert("已封鎖：" + uuid);
+    loadLogs();
+};
+
+/* 解封 */
+window.unblockUUID = async function (uuid) {
+    await supabase.from("blocked_uuids").delete().eq("uuid", uuid);
+    alert("已解除封鎖：" + uuid);
+    loadLogs();
+};
+
+/* ---------------------------------------------------
+   3. 主功能：讀取 access_logs 分析可疑行為
+--------------------------------------------------- */
+window.loadLogs = async function () {
+
+    document.getElementById("uuidTable").innerHTML = "";
+    document.getElementById("summary").innerHTML = "讀取中…";
+
+    const range = document.getElementById("rangeSel").value;
+    let query = supabase.from("access_logs").select("*");
+
+    if (range !== "all") {
+        const since = new Date(Date.now() - parseInt(range) * 86400 * 1000).toISOString();
+        query = query.gte("timestamp", since);
+    }
+
+    const { data: logs, error } = await query;
+
+    if (error) {
+        document.getElementById("summary").innerHTML = "讀取錯誤";
+        return;
+    }
+
+    const blocked = await getBlockedUUIDs();
+
+    /* 分組 UUID 資料 */
+    const grouped = {};
+
+    logs.forEach(log => {
+        if (!grouped[log.uuid]) {
+            grouped[log.uuid] = {
+                uuid: log.uuid,
+                count: 0,
+                lastDist: log.distance,
+                entered: false,
+                lastTime: log.timestamp
+            };
+        }
+        grouped[log.uuid].count++;
+        grouped[log.uuid].lastDist = log.distance;
+        if (log.entered) grouped[log.uuid].entered = true;
+        grouped[log.uuid].lastTime = log.timestamp;
+    });
+
+    const arr = Object.values(grouped);
+
+    /* 可疑度模型 */
+    arr.forEach(u => {
+        let score = 0;
+
+        if (!u.entered) score += 2;
+        if (u.lastDist > 1000) score += 2;
+        if (u.count > 10) score += 1;
+        if (u.lastDist > 3000) score += 1;
+
+        u.score = score;
+
+        if (score >= 3) u.level = "red";
+        else if (score === 2) u.level = "yellow";
+        else u.level = "green";
+    });
+
+    arr.sort((a,b) => b.score - a.score); // 排序可疑度
+
+    document.getElementById("summary").innerHTML =
+        `裝置數量：${arr.length}（高可疑：${arr.filter(x=>x.level==='red').length}）`;
+
+    /* 製作表格 */
+    const tbody = document.getElementById("uuidTable");
+
+    arr.forEach(u => {
+        const tr = document.createElement("tr");
+        tr.className = "uuid-row";
+
+        tr.innerHTML = `
+            <td>${u.uuid}</td>
+            <td>${u.count}</td>
+            <td>${u.lastDist}m</td>
+            <td>${u.entered ? "✔" : "✘"}</td>
+            <td><span class="tag ${u.level}">${u.level}</span></td>
+            <td>
+                ${
+                    blocked.includes(u.uuid)
+                    ? `<button class="unblock-btn" onclick="unblockUUID('${u.uuid}')">解除</button>`
+                    : `<button class="block-btn" onclick="blockUUID('${u.uuid}')">封鎖</button>`
+                }
+            </td>
+        `;
+
+        tr.onclick = () => focusOnMap(u.uuid);
+
+        tbody.appendChild(tr);
+    });
+
+    drawMap(logs, arr);
+};
+
+
+/* ---------------------------------------------------
+   4. 地圖視覺化（模糊定位）
+--------------------------------------------------- */
+let map = null;
+let markers = [];
+
+function drawMap(logs, summary) {
+
+    if (!map) {
+        map = L.map("map").setView([25.04, 121.56], 13);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+            .addTo(map);
+    }
+
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+
+    let lastPos = {};
+
+    logs.forEach(l => {
+        lastPos[l.uuid] = l; // 自動覆蓋成最新
+    });
+
+    summary.forEach(u => {
+        const rec = lastPos[u.uuid];
+        if (!rec) return;
+
+        const lat = Math.round(rec.lat * 1000) / 1000;
+        const lng = Math.round(rec.lng * 1000) / 1000;
+
+        const color =
+            u.level === "red" ? "red" :
+            u.level === "yellow" ? "orange" :
+            "blue";
+
+        const marker = L.circleMarker([lat, lng], {
+            radius: 8,
+            color,
+            fillColor: color,
+            fillOpacity: 0.8
+        })
+        .addTo(map)
+        .bindPopup(`UUID: ${u.uuid}<br>可疑度：${u.level}`);
+
+        markers.push(marker);
+    });
+}
+
+
+/* 點擊表格 → 聚焦該 UUID 地圖位置 */
+function focusOnMap(uuid) {
+    const marker = markers.find(m => m._popup._content.includes(uuid));
+    if (marker) {
+        map.setView(marker.getLatLng(), 17);
+        marker.openPopup();
+    }
+}
+
+</script>
+
+</body>
+</html>

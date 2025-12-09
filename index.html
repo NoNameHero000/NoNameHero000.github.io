@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>今日擺攤位置</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+    body { font-family: Arial; padding: 10px; }
+    #map { height: 380px; margin-top: 10px; }
+    #msg { font-size: 18px; margin-top: 10px; }
+    #navBtn { 
+        padding: 12px; 
+        background: #0078ff; 
+        color: white; 
+        border: none; 
+        width: 100%; 
+        margin-top: 10px; 
+        font-size: 18px;
+        display: none;
+        border-radius: 6px;
+    }
+</style>
+
+</head>
+<body>
+
+<h2>今日營業資訊</h2>
+<div id="msg">載入中...</div>
+<div id="map"></div>
+<button id="navBtn">開始導航</button>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
+
+const supabase = createClient(
+  "https://bbbvgqlvhzgccylqszoh.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJiYnZncWx2aHpnY2N5bHFzem9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyOTE2NzQsImV4cCI6MjA4MDg2NzY3NH0.iuzwUbrWfHm0quV05qBJTFIO4_-uJMSd4DT_1U9awgk"
+);
+
+/* ---------------------------------------------------
+   客戶端 UUID（裝置唯一識別碼）
+--------------------------------------------------- */
+let uuid = localStorage.getItem("uuid");
+if (!uuid) {
+    uuid = crypto.randomUUID();
+    localStorage.setItem("uuid", uuid);
+}
+
+/* ---------------------------------------------------
+   讀取今日設定（location_config）
+--------------------------------------------------- */
+const { data: cfg, error } = await supabase
+    .from("location_config")
+    .select("*")
+    .eq("id", 1)
+    .single();
+
+if (error) {
+    document.getElementById("msg").innerText = "無法讀取位置設定。";
+    throw error;
+}
+
+const storeLat = cfg.lat;
+const storeLng = cfg.lng;
+const radius = cfg.radius;
+const hint = cfg.hint;
+
+document.getElementById("msg").innerText = hint;
+
+/* ---------------------------------------------------
+   檢查是否在黑名單
+--------------------------------------------------- */
+const { data: blocked } = await supabase
+    .from("blocked_uuids")
+    .select("*")
+    .eq("uuid", uuid);
+
+if (blocked && blocked.length > 0) {
+    document.getElementById("msg").innerHTML =
+        "⚠ 你已被限制查看店家位置。";
+    throw new Error("Blocked user");
+}
+
+/* ---------------------------------------------------
+   Leaflet 地圖初始化
+--------------------------------------------------- */
+const map = L.map("map").setView([storeLat, storeLng], 16);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+L.marker([storeLat, storeLng]).addTo(map);
+
+L.circle([storeLat, storeLng], {
+    radius: radius,
+    color: "blue",
+    fillColor: "lightblue",
+    fillOpacity: 0.2
+}).addTo(map);
+
+let userMarker = null;
+
+/* ---------------------------------------------------
+   即時定位（watchPosition）
+--------------------------------------------------- */
+navigator.geolocation.watchPosition(async pos => {
+
+    const userLat = pos.coords.latitude;
+    const userLng = pos.coords.longitude;
+
+    if (!userMarker) {
+        userMarker = L.marker([userLat, userLng], {
+            icon: L.divIcon({
+                html: '<div style="width:12px;height:12px;background:blue;border-radius:50%;"></div>',
+                className: ""
+            })
+        }).addTo(map);
+    } else {
+        userMarker.setLatLng([userLat, userLng]);
+    }
+
+    const dist = distance(userLat, userLng, storeLat, storeLng);
+
+    /* 顯示距離提示 */
+    if (dist <= radius) {
+        document.getElementById("msg").innerHTML =
+            `🎉 你已進入店家附近！（距離：${Math.floor(dist)} 公尺）`;
+
+        /* 顯示導航按鈕 */
+        const navBtn = document.getElementById("navBtn");
+        navBtn.style.display = "block";
+        navBtn.onclick = () => {
+            window.location.href =
+                `https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}`;
+        };
+
+    } else {
+        document.getElementById("msg").innerHTML =
+            `你距離店家約 ${Math.floor(dist)} 公尺，再靠近一些即可看到導航按鈕。`;
+    }
+
+    /* 記錄 access_logs（匿名） */
+    await supabase.from("access_logs").insert({
+        uuid,
+        timestamp: new Date().toISOString(),
+        distance: Math.floor(dist),
+        entered: dist <= radius,
+        lat: Math.round(userLat * 1000) / 1000,   // 模糊化位置（100m）
+        lng: Math.round(userLng * 1000) / 1000
+    });
+
+});
+
+/* ---------------------------------------------------
+   距離公式
+--------------------------------------------------- */
+function distance(lat1, lon1, lat2, lon2) {
+    function toRad(v){ return v * Math.PI / 180; }
+    const R = 6371000;
+    const dLat = toRad(lat2-lat1);
+    const dLon = toRad(lon2-lon1);
+    const a = Math.sin(dLat/2)**2 +
+        Math.cos(toRad(lat1))*Math.cos(toRad(lat2)) *
+        Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+</script>
+
+</body>
+</html>
