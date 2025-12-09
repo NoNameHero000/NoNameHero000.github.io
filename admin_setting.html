@@ -157,8 +157,8 @@
 <!-- 🔐 Login -->
 <div id="loginBox">
     <h3>登入後台</h3>
-    <input id="acc" placeholder="帳號：admin123">
-    <input id="pwd" type="password" placeholder="密碼：aa123456">
+    <input id="acc">
+    <input id="pwd" type="password">
     <button onclick="login()">登入</button>
 </div>
 
@@ -212,8 +212,8 @@ const supabase = createClient(
    🔐 登入邏輯（用你的 MD5 比對）
 ---------------------------------------------------- */
 
-const ACC_MD5 = "0192023a7bbd73250516f069df18b500";   // admin123
-const PWD_MD5 = "8a6f2805b4515ac12058e79e66539be9";   // aa123456
+const ACC_MD5 = "0192023a7bbd73250516f069df18b500";  
+const PWD_MD5 = "8a6f2805b4515ac12058e79e66539be9";   
 
 window.login = function () {
     const acc = document.getElementById("acc").value.trim();
@@ -463,6 +463,34 @@ async function loadLogs() {
 
     box.innerHTML = html;
 }
+
+/* ----------------------------------------------------
+   📌 從 Supabase 讀取目前設定（位置 / 半徑 / hint）
+---------------------------------------------------- */
+async function loadConfig() {
+    const { data, error } = await supabase
+        .from("location_config")
+        .select("*")
+        .eq("id", 1)
+        .single();
+
+    if (error || !data) {
+        alert("讀取設定失敗");
+        return;
+    }
+
+    document.getElementById("lat").value = data.lat;
+    document.getElementById("lng").value = data.lng;
+    document.getElementById("radius").value = data.radius;
+    document.getElementById("hint").value = data.hint;
+
+    // 更新地圖位置
+    if (map && marker) {
+        marker.setLatLng([data.lat, data.lng]);
+        map.setView([data.lat, data.lng], 17);
+    }
+}
+
 
 </script>
 
