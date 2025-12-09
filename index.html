@@ -14,23 +14,20 @@
         padding: 0;
         font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
         overflow: hidden;
-        background: #f5f5f5;
     }
 
     /* 全螢幕地圖 */
     #map {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
         z-index: 1;
     }
 
-    /* 提示卡 */
+    /* 主提示卡 */
     #infoCard {
         position: fixed;
-        top: 75px;
+        top: 85px;
         left: 50%;
         transform: translateX(-50%);
         width: calc(100% - 40px);
@@ -42,11 +39,11 @@
         font-size: 16px;
         line-height: 1.45em;
         z-index: 10;
-        backdrop-filter: blur(6px);
         text-align: center;
+        backdrop-filter: blur(6px);
     }
 
-    /* 可關閉的透明提示 */
+    /* 可關閉提示 */
     #tipBubble {
         position: fixed;
         top: 20px;
@@ -54,18 +51,30 @@
         transform: translateX(-50%);
         padding: 12px 16px;
         background: rgba(0,0,0,0.55);
-        color: #fff;
+        color: white;
         border-radius: 10px;
         font-size: 15px;
-        backdrop-filter: blur(4px);
         z-index: 12;
     }
     #closeTip {
         margin-left: 10px;
-        color: #ffcccc;
+        color: #ffdddd;
         cursor: pointer;
-        font-size: 16px;
         font-weight: bold;
+        font-size: 18px;
+    }
+
+    /* 最後更新時間：右上角 */
+    #updateTime {
+        position: fixed;
+        top: 55px;
+        right: 10px;
+        font-size: 12px;
+        color: #ffffffcc;
+        background: rgba(0,0,0,0.45);
+        padding: 4px 8px;
+        border-radius: 6px;
+        z-index: 12;
     }
 
     /* 導航按鈕 */
@@ -78,17 +87,17 @@
         max-width: 500px;
         padding: 16px;
         font-size: 20px;
-        border-radius: 12px;
         border: none;
+        border-radius: 12px;
         background: #1e90ff;
         color: white;
         font-weight: bold;
         display: none;
         z-index: 10;
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.25);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
     }
 
-    /* "回到我的位置" 按鈕 */
+    /* 回到我的位置按鈕 */
     #locateBtn {
         position: fixed;
         bottom: 95px;
@@ -96,53 +105,39 @@
         width: 52px;
         height: 52px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.9);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        background: rgba(255,255,255,0.92);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.28);
         display: flex;
         justify-content: center;
         align-items: center;
-        z-index: 12;
+        font-size: 22px;
         cursor: pointer;
-        font-size: 24px;
-        user-select: none;
+        z-index: 12;
     }
-
-    /* 最後更新時間（右上角） */
-    #updateTime {
-        position: fixed;
-        top: 50px;
-        right: 10px;
-        font-size: 12px;
-        color: #ffffffcc;
-        background: rgba(0,0,0,0.4);
-        padding: 4px 8px;
-        border-radius: 6px;
-        z-index: 11;
-    }
-
 </style>
 </head>
+
 <body>
 
-<!-- 可關閉提示 -->
+<!-- 提示泡泡 -->
 <div id="tipBubble">
     💡 小提示：可點藍色圖標開啟 Google 導航
     <span id="closeTip">×</span>
 </div>
 
-<!-- 位置設定時間 -->
+<!-- 最後 GPS 更新時間 -->
 <div id="updateTime">更新時間：--</div>
 
 <!-- 主提示卡 -->
 <div id="infoCard">正在取得你的所在位置…</div>
 
-<!-- 全螢幕地圖 -->
+<!-- 地圖 -->
 <div id="map"></div>
 
-<!-- 回到自己的位置 -->
+<!-- 回到我位置 -->
 <div id="locateBtn">⦿</div>
 
-<!-- 底部導航按鈕 -->
+<!-- 導航按鈕 -->
 <button id="navBtn">開始導航</button>
 
 <script type="module">
@@ -160,7 +155,7 @@ if (!uuid) {
     localStorage.setItem("uuid", uuid);
 }
 
-/* 關閉提示記憶 */
+/* 隱藏提示泡泡（記憶） */
 if (localStorage.getItem("hideTip") === "1") {
     document.getElementById("tipBubble").style.display = "none";
 }
@@ -169,7 +164,7 @@ document.getElementById("closeTip").onclick = () => {
     localStorage.setItem("hideTip", "1");
 };
 
-/* 先讀取 lat/lng/radius + created_at */
+/* 取得店家位置設定 */
 const { data: cfg, error } = await supabase
     .from("location_config")
     .select("lat, lng, radius, created_at")
@@ -177,94 +172,118 @@ const { data: cfg, error } = await supabase
     .single();
 
 if (!cfg) {
-    document.getElementById("infoCard").textContent = "讀取設定失敗";
+    document.getElementById("infoCard").innerText = "讀取店家設定失敗";
     throw error;
 }
 
 const storeLat = cfg.lat;
 const storeLng = cfg.lng;
-const radius   = cfg.radius;
+const radius = cfg.radius;
 
-/* 顯示設定時間 */
+/* 顯示後台最後設定時間 */
 let dt = new Date(cfg.created_at);
-document.getElementById("updateTime").textContent =
-    `更新時間：${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+document.getElementById("updateTime").innerText =
+    `設定：${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
 
-/* 檢查黑名單 */
+/* 黑名單檢查 */
 const { data: blocked } = await supabase
   .from("blocked_uuids")
   .select("*")
   .eq("uuid", uuid);
 
-if (blocked && blocked.length > 0) {
+if (blocked?.length > 0) {
     document.getElementById("infoCard").innerHTML =
-        "⚠ 你已被限制查看位置。";
+        "⚠ 你已被限制查看位置";
     throw new Error("blocked");
 }
 
-/* Leaflet map */
-const map = L.map("map", { zoomControl: false }).setView([storeLat, storeLng], 17);
-
+/* 初始化地圖 */
+const map = L.map("map", { zoomControl: false }).setView([storeLat, storeLng], 16);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 const storeMarker = L.marker([storeLat, storeLng]).addTo(map);
-storeMarker.bindPopup(`<b>店家位置</b><br><a href="https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}" target="_blank">在 Google Maps 開啟</a>`);
+storeMarker.bindPopup(`<b>店家位置</b><br>
+<a href="https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}" target="_blank" style="color:blue;">在 Google Maps 開啟</a>`);
 
 L.circle([storeLat, storeLng], {
     radius,
     color: "blue",
-    fillColor: "lightblue",
+    fillColor: "#87cefa",
     fillOpacity: 0.25
 }).addTo(map);
 
 let userMarker = null;
-let userLat = null;
-let userLng = null;
+let userLat = null, userLng = null;
 let hintLoaded = false;
 let hintText = "";
 
-/* 回到我的位置 */
+/* 回到我位置 */
 document.getElementById("locateBtn").onclick = () => {
-    if (userLat && userLng) {
-        map.flyTo([userLat, userLng], 17);
-    }
+    if (userLat && userLng) map.flyTo([userLat, userLng], 17);
 };
 
-/* 地理定位 */
-navigator.geolocation.watchPosition(async pos => {
+/*--------------------------------------------------------------------
+    🚀 改良定位流程：先 getCurrentPosition，再 watchPosition
+----------------------------------------------------------------------*/
 
+/* 優先一次性定位（最快） */
+function firstLocate() {
+    return new Promise((resolve, reject) => {
+        let done = false;
+
+        const timer = setTimeout(() => {
+            if (!done) reject("timeout");
+        }, 6000);
+
+        navigator.geolocation.getCurrentPosition(pos => {
+            done = true;
+            clearTimeout(timer);
+            resolve(pos);
+        }, err => {
+            done = true;
+            clearTimeout(timer);
+            reject(err);
+        }, { enableHighAccuracy: true });
+    });
+}
+
+/* 持續更新 */
+function startWatch() {
+    navigator.geolocation.watchPosition(handlePosition, () => {}, {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 8000
+    });
+}
+
+/*--------------------------------------------------------------------
+    📌 處理定位資訊
+----------------------------------------------------------------------*/
+async function handlePosition(pos) {
     userLat = pos.coords.latitude;
     userLng = pos.coords.longitude;
 
-    /* 顯示 marker */
+    /* 顯示用戶 marker */
     if (!userMarker) {
         userMarker = L.marker([userLat, userLng], {
             icon: L.divIcon({
-                html: '<div style="width:15px;height:15px;background:#1e90ff;border-radius:50%;border:2px solid white;"></div>',
-                className: ""
+                html: '<div style="width:15px;height:15px;background:#1e90ff;border-radius:50%;border:2px solid white;"></div>'
             })
         }).addTo(map);
     } else {
         userMarker.setLatLng([userLat, userLng]);
     }
 
-    /* 距離計算 */
+    /* 更新 GPS 時間 */
+    let now = new Date();
+    document.getElementById("updateTime").innerText =
+        `更新：${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
     const dist = getDistance(userLat, userLng, storeLat, storeLng);
 
-    /* 更新時間（右上角） */
-    let now = new Date();
-    document.getElementById("updateTime").textContent =
-        `最後更新：${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-
     if (dist <= radius) {
-
-        /* 首次進圈後才請求 hint */
         if (!hintLoaded) {
-            const r = await supabase
-                .from("location_config")
-                .select("hint")
-                .eq("id", 1)
-                .single();
+            const r = await supabase.from("location_config").select("hint").eq("id",1).single();
             hintText = r.data?.hint || "";
             hintLoaded = true;
         }
@@ -274,20 +293,17 @@ navigator.geolocation.watchPosition(async pos => {
 
         const btn = document.getElementById("navBtn");
         btn.style.display = "block";
-        btn.onclick = () => {
+        btn.onclick = () =>
             window.location.href =
                 `https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}`;
-        };
-
-    } else {
-
+    }
+    else {
         document.getElementById("infoCard").innerHTML =
-            `你距離店家約 <b>${Math.floor(dist)}</b> 公尺，再靠近即可查看詳細位置。`;
-
+            `距離店家約 <b>${Math.floor(dist)}</b> 公尺，再靠近一些即可查看詳細位置。`;
         document.getElementById("navBtn").style.display = "none";
     }
 
-    /* 記錄 log */
+    /* 紀錄 log */
     await supabase.from("access_logs").insert({
         uuid,
         timestamp: new Date().toISOString(),
@@ -296,15 +312,29 @@ navigator.geolocation.watchPosition(async pos => {
         lat: Math.round(userLat * 1000) / 1000,
         lng: Math.round(userLng * 1000) / 1000
     });
+}
 
-});
+/*--------------------------------------------------------------------
+    🚀 啟動定位流程
+----------------------------------------------------------------------*/
 
-/* 距離公式 */
+try {
+    const pos = await firstLocate();   // 先嘗試快速定位
+    handlePosition(pos);              // 立即顯示
+    startWatch();                     // 開始持續追蹤
+} catch (err) {
+    document.getElementById("infoCard").innerHTML =
+        "⚠ 無法快速取得定位<br>請開啟精確定位或到戶外試試";
+    startWatch();  // fallback：仍然嘗試追蹤
+}
+
+/*--------------------------------------------------------------------
+    距離計算
+----------------------------------------------------------------------*/
 function getDistance(lat1, lon1, lat2, lon2) {
-    function toRad(v){ return v * Math.PI / 180; }
-    const R = 6371000;
-    const dLat = toRad(lat2-lat1);
-    const dLon = toRad(lon2-lon1);
+    const R = 6371000, toRad = v => v * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
     const a =
         Math.sin(dLat/2)**2 +
         Math.cos(toRad(lat1)) *
@@ -312,7 +342,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
         Math.sin(dLon/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-
 </script>
 
 </body>
