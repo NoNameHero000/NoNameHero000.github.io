@@ -2,88 +2,85 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>後台登入</title>
+<title>擺攤位置管理後台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<!-- MD5 -->
 <script src="https://cdn.jsdelivr.net/npm/blueimp-md5/js/md5.min.js"></script>
 
 <style>
     body {
-        font-family: -apple-system, BlinkMacSystemFont, Arial;
-        background: #f0f0f0;
+        font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
         margin: 0;
         padding: 0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
+        background: #fafafa;
     }
 
-    #loginBox {
-        background: white;
-        padding: 25px;
-        width: 90%;
-        max-width: 350px;
-        border-radius: 12px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    #loginBox, #adminBox {
+        max-width: 900px;
+        margin: auto;
+        padding: 20px;
     }
 
-    input {
+    #adminBox { display: none; }
+
+    input, button, textarea {
         width: 100%;
-        padding: 12px;
-        margin: 8px 0;
-        border-radius: 8px;
-        border: 1px solid #bbb;
-        font-size: 16px;
+        padding: 10px;
+        margin: 6px 0;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        font-size: 15px;
     }
 
     button {
-        width: 100%;
-        padding: 12px;
-        margin-top: 12px;
         background: #1e90ff;
         color: white;
-        font-size: 18px;
+        font-weight: bold;
         border: none;
-        border-radius: 8px;
+        cursor: pointer;
     }
 
-    #adminPage {
-        display: none;
-        padding: 20px;
+    button:hover {
+        background: #187bdb;
+    }
+
+    #map {
+        height: 380px;
+        margin-top: 10px;
+        border-radius: 10px;
+        overflow: hidden;
     }
 
     /* 說明彈窗 */
-    #helpModal {
+    #guidePopup {
         position: fixed;
-        top: 0; left: 0;
-        width: 100vw; height: 100vh;
-        background: rgba(0,0,0,0.55);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 20;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: calc(100% - 40px);
+        max-width: 480px;
+        background: white;
+        padding: 20px;
+        border-radius: 14px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.2);
+        z-index: 999;
         display: none;
     }
 
-    #helpContent {
-        width: 90%;
-        max-width: 450px;
-        background: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-        line-height: 1.6em;
-        font-size: 16px;
-        position: relative;
+    #guidePopup h3 {
+        margin-top: 0;
     }
 
-    #modalClose {
-        position: absolute;
-        top: 10px;
-        right: 12px;
+    #guideClose {
+        float: right;
         font-size: 22px;
         cursor: pointer;
+        color: #888;
     }
 
     #helpBtn {
@@ -96,71 +93,377 @@
         height: 42px;
         border-radius: 50%;
         font-size: 22px;
-        border: none;
         display: none;
-        z-index: 10;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        z-index: 15;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+    }
+
+    /* 表格 */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+        font-size: 14px;
+    }
+
+    th, td {
+        border-bottom: 1px solid #ddd;
+        padding: 8px;
+    }
+
+    th {
+        background: #f0f0f0;
     }
 </style>
-</head>
 
+</head>
 <body>
 
-<!-- 登入區 -->
+<h2 style="text-align:center;margin-top:20px;">📍 擺攤位置管理後台</h2>
+
+<!-- ❓ 說明按鈕 -->
+<div id="helpBtn">?</div>
+
+<!-- 📘 使用說明彈窗 -->
+<div id="guidePopup">
+    <span id="guideClose">×</span>
+    <h3>使用說明</h3>
+
+    <p>這是讓板娘安心工作的系統，使用方法如下：</p>
+
+    <p><b>1️⃣ 搜尋今天擺攤的位置</b><br>
+    請在上方搜尋欄輸入地點，例如「高雄車站」。</p>
+
+    <p><b>2️⃣ 選擇地點後，地圖會跳到該位置</b><br>
+    你可以直接按「保存」，或手動拖動地圖上的紅色定位點。</p>
+
+    <p><b>3️⃣ 半徑預設 300 公尺，可自行修改</b></p>
+
+    <p><b>4️⃣ 模糊提示（hint）</b><br>
+    客戶進入半徑後才能看到，例如：<br>
+    「今天我們在某某國小附近 300 公尺內」</p>
+
+    <p><b>5️⃣ 黑名單（封鎖內鬼）</b><br>
+    每個裝置都有 UUID，可在後台直接封鎖。</p>
+
+    <button onclick="document.getElementById('guidePopup').style.display='none'">
+        我知道了
+    </button>
+</div>
+
+<!-- 🔐 Login -->
 <div id="loginBox">
-    <h3>後台登入</h3>
-    <input id="acc" placeholder="帳號">
-    <input id="pwd" type="password" placeholder="密碼">
+    <h3>登入後台</h3>
+    <input id="acc" placeholder="帳號：admin123">
+    <input id="pwd" type="password" placeholder="密碼：aa123456">
     <button onclick="login()">登入</button>
 </div>
 
-<!-- 問號按鈕 -->
-<button id="helpBtn" onclick="openHelp()">？</button>
+<!-- 🛠 Admin 功能 -->
+<div id="adminBox">
 
-<!-- 說明彈窗 -->
-<div id="helpModal">
-    <div id="helpContent">
-        <div id="modalClose" onclick="closeHelp()">×</div>
-        <h3>使用說明（讓板娘安心工作的系統）</h3>
-        <p>1. 先在「選擇地點」輸入今天擺攤的位置，例如輸入「高雄車站」，按下搜尋。</p>
-        <p>2. 下方地圖就會跳出搜尋結果。你可以選擇直接保存（客戶就會找該地標），或自行拖動地圖選一個你喜歡的地標。但請勿點你真正的精準位置。</p>
-        <p>3. 保存後，系統會自動填入該點的經緯度。半徑可自行設定，預設 300 公尺。</p>
-        <p>4. 上方的模糊提示為客戶「進入半徑後」才會看到的訊息，例如「大概在某某國小附近」或「在 XX 路上」。</p>
-    </div>
+    <h3>今日位置設定</h3>
+
+    <label>模糊提示（hint）</label>
+    <textarea id="hint" rows="2"></textarea>
+
+    <label>顯示半徑（公尺）</label>
+    <input id="radius" value="300">
+
+    <label>緯度（lat）</label>
+    <input id="lat">
+
+    <label>經度（lng）</label>
+    <input id="lng">
+
+    <button onclick="saveConfig()">💾 保存設置</button>
+
+    <hr>
+
+    <h3>搜尋地點（地名 / 路名）</h3>
+    <input id="searchBox" placeholder="例如：高雄車站、台北101">
+    <button onclick="searchLocation()">🔍 搜尋</button>
+
+    <div id="map"></div>
+
+    <hr>
+
+    <h3>🧟 黑名單管理（blocked_uuids）</h3>
+    <div id="blockedList">讀取中…</div>
+
+    <hr>
+
+    <h3>📜 存取紀錄（access_logs）</h3>
+    <div id="logList">讀取中…</div>
+
 </div>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-<!-- 主後台 -->
-<div id="adminPage">
-    <h2>後台管理頁面</h2>
-    <!-- 此處放置你原有的後台功能，例如設定地標、保存位置等 -->
-</div>
+const supabase = createClient(
+  "https://bbbvgqlvhzgccylqszoh.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJiYnZncWx2aHpnY2N5bHFzem9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyOTE2NzQsImV4cCI6MjA4MDg2NzY3NH0.iuzwUbrWfHm0quV05qBJTFIO4_-uJMSd4DT_1U9awgk"
+);
 
-<script>
-// 正確 MD5（你提供的）
-const ACC_MD5 = "0192023a7bbd73250516f069df18b500";
-const PWD_MD5 = "8a6f2805b4515ac12058e79e66539be9";
+/* ----------------------------------------------------
+   🔐 登入邏輯（用你的 MD5 比對）
+---------------------------------------------------- */
 
-function login() {
-    const acc = md5(document.getElementById("acc").value.trim());
-    const pwd = md5(document.getElementById("pwd").value.trim());
+const ACC_MD5 = "0192023a7bbd73250516f069df18b500";   // admin123
+const PWD_MD5 = "8a6f2805b4515ac12058e79e66539be9";   // aa123456
 
-    if (acc === ACC_MD5 && pwd === PWD_MD5) {
+window.login = function () {
+    const acc = document.getElementById("acc").value.trim();
+    const pwd = document.getElementById("pwd").value.trim();
+
+    if (md5(acc) === ACC_MD5 && md5(pwd) === PWD_MD5) {
         document.getElementById("loginBox").style.display = "none";
-        document.getElementById("adminPage").style.display = "block";
-        document.getElementById("helpBtn").style.display = "block";
+        document.getElementById("adminBox").style.display = "block";
 
-        openHelp(); // 登入後自動彈說明
+        document.getElementById("helpBtn").style.display = "flex";
+        document.getElementById("guidePopup").style.display = "block";
+
+        initMap();
+        loadConfig();
+        loadBlocked();
+        loadLogs();
     } else {
         alert("帳號或密碼錯誤");
     }
+};
+
+/* 說明按鈕 */
+document.getElementById("helpBtn").onclick = () => {
+    document.getElementById("guidePopup").style.display = "block";
+};
+document.getElementById("guideClose").onclick = () => {
+    document.getElementById("guidePopup").style.display = "none";
+};
+
+
+/* ----------------------------------------------------
+   🗺️ 地圖初始化
+---------------------------------------------------- */
+
+let map, marker;
+
+function initMap() {
+    map = L.map("map").setView([25.033964, 121.564468], 17);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+    }).addTo(map);
+
+    marker = L.marker([25.033964, 121.564468], { draggable: true })
+        .addTo(map);
+
+    /* 拖曳更新座標 */
+    marker.on("dragend", () => {
+        const pos = marker.getLatLng();
+        updateLatLng(pos.lat, pos.lng);
+        autoHint(pos.lat, pos.lng);
+    });
+
+    /* 點擊地圖更新座標 */
+    map.on("click", function (e) {
+        marker.setLatLng(e.latlng);
+        updateLatLng(e.latlng.lat, e.latlng.lng);
+        autoHint(e.latlng.lat, e.latlng.lng);
+    });
 }
 
-/* 彈窗控制 */
-function openHelp() {
-    document.getElementById("helpModal").style.display = "flex";
+function updateLatLng(lat, lng) {
+    document.getElementById("lat").value = lat;
+    document.getElementById("lng").value = lng;
 }
-function closeHelp() {
-    document.getElementById("helpModal").style.display = "none";
+
+
+/* ----------------------------------------------------
+   🔍 搜尋地名（Nominatim）
+---------------------------------------------------- */
+window.searchLocation = async function () {
+    const keyword = document.getElementById("searchBox").value.trim();
+    if (!keyword) return alert("請輸入地名");
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(keyword)}`;
+    const data = await fetch(url).then(r => r.json());
+
+    if (data.length === 0) return alert("查無地名");
+
+    const lat = parseFloat(data[0].lat);
+    const lon = parseFloat(data[0].lon);
+
+    map.setView([lat, lon], 17);
+    marker.setLatLng([lat, lon]);
+    updateLatLng(lat, lon);
+    autoHint(lat, lon);
+};
+
+
+/* ----------------------------------------------------
+   🎯 自動 hint（reverse geocode）
+---------------------------------------------------- */
+
+async function autoHint(lat, lng) {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+    const info = await fetch(url).then(r => r.json());
+
+    const display = info.display_name || "附近";
+    const r = document.getElementById("radius").value || 300;
+
+    document.getElementById("hint").value =
+        `今天我們在「${display}」附近 ${r} 公尺內！`;
 }
+
+
+/* ----------------------------------------------------
+   💾 保存設定到 Supabase
+---------------------------------------------------- */
+
+window.saveConfig = async function () {
+    const lat = parseFloat(document.getElementById("lat").value);
+    const lng = parseFloat(document.getElementById("lng").value);
+    const radius = parseInt(document.getElementById("radius").value);
+    const hint = document.getElementById("hint").value;
+
+    const { error } = await supabase
+        .from("location_config")
+        .update({
+            lat, lng, radius, hint,
+            updated_at: new Date().toISOString()
+        })
+        .eq("id", 1);
+
+    if (error) alert("保存失敗：" + error.message);
+    else alert("更新成功！");
+};
+/* ----------------------------------------------------
+   🧟 黑名單管理 blocked_uuids
+---------------------------------------------------- */
+
+async function loadBlocked() {
+    const box = document.getElementById("blockedList");
+    box.innerHTML = "讀取中…";
+
+    const { data, error } = await supabase
+        .from("blocked_uuids")
+        .select("*")
+        .order("id", { ascending: false });
+
+    if (error) {
+        box.innerHTML = "讀取失敗：" + error.message;
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        box.innerHTML = "目前沒有封鎖任何 UUID";
+        return;
+    }
+
+    let html = `<table>
+        <tr>
+            <th>UUID</th>
+            <th>封鎖時間</th>
+            <th>操作</th>
+        </tr>`;
+
+    data.forEach(row => {
+        html += `
+        <tr>
+            <td>${row.uuid}</td>
+            <td>${new Date(row.created_at).toLocaleString()}</td>
+            <td><button onclick="unblockUUID('${row.uuid}')">解除封鎖</button></td>
+        </tr>`;
+    });
+
+    html += "</table>";
+    box.innerHTML = html;
+}
+
+window.unblockUUID = async function (uuid) {
+    const ok = confirm(`確定要解除封鎖？\n${uuid}`);
+    if (!ok) return;
+
+    await supabase.from("blocked_uuids").delete().eq("uuid", uuid);
+    alert("已解除封鎖");
+    loadBlocked();
+};
+
+
+/* ----------------------------------------------------
+   ➕ 新增封鎖 UUID
+---------------------------------------------------- */
+
+window.blockUUID = async function (uuid) {
+    const ok = confirm(`確定要封鎖這個 UUID？\n${uuid}`);
+    if (!ok) return;
+
+    await supabase.from("blocked_uuids").insert({
+        uuid,
+        created_at: new Date().toISOString()
+    });
+
+    alert("已加入黑名單！");
+    loadBlocked();
+};
+
+
+/* ----------------------------------------------------
+   📜 存取紀錄 access_logs
+---------------------------------------------------- */
+
+async function loadLogs() {
+    const box = document.getElementById("logList");
+    box.innerHTML = "讀取中…";
+
+    const { data, error } = await supabase
+        .from("access_logs")
+        .select("*")
+        .order("id", { ascending: false })
+        .limit(200);  // 避免太多
+
+    if (error) {
+        box.innerHTML = "讀取失敗：" + error.message;
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        box.innerHTML = "目前沒有存取紀錄";
+        return;
+    }
+
+    let html = `<table>
+        <tr>
+            <th>UUID</th>
+            <th>距離</th>
+            <th>進圈</th>
+            <th>座標</th>
+            <th>時間</th>
+            <th>操作</th>
+        </tr>`;
+
+    data.forEach(row => {
+        html += `
+        <tr>
+            <td>${row.uuid}</td>
+            <td>${row.distance} m</td>
+            <td>${row.entered ? "✔" : "—"}</td>
+            <td>${row.lat}, ${row.lng}</td>
+            <td>${new Date(row.timestamp).toLocaleString()}</td>
+            <td>
+                <button onclick="blockUUID('${row.uuid}')">封鎖</button>
+            </td>
+        </tr>`;
+    });
+
+    html += "</table>";
+
+    box.innerHTML = html;
+}
+
 </script>
 
 </body>
