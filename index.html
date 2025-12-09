@@ -303,15 +303,40 @@ async function handlePosition(pos) {
         document.getElementById("navBtn").style.display = "none";
     }
 
-    /* 紀錄 log */
-    await supabase.from("access_logs").insert({
-        uuid,
-        timestamp: new Date().toISOString(),
-        distance: Math.floor(dist),
-        entered: dist <= radius,
-        lat: Math.round(userLat * 1000) / 1000,
-        lng: Math.round(userLng * 1000) / 1000
-    });
+    /* ----------------------------------------------------
+    優化 Log 寫入：首次 + 每 3 分鐘一次 + 每日上限 30
+    ---------------------------------------------------- */
+
+    let lastLogTime = parseInt(localStorage.getItem("lastLogTime") || "0");
+    let today = new Date().toISOString().slice(0, 10);
+
+    /* 每日上限管理 */
+    let dailyCountKey = "logCount_" + uuid + "_" + today;
+    let dailyCount = parseInt(localStorage.getItem(dailyCountKey) || "0");
+
+    /* 只要超過每日 30 筆 → 不再寫入 */
+    if (dailyCount < 30) {
+
+        const nowTs = Date.now();
+
+        /* 第一次 or 距離上次 > 3 分鐘 */
+        if (lastLogTime === 0 || nowTs - lastLogTime > 180000) {
+
+            await supabase.from("access_logs").insert({
+                uuid,
+                timestamp: new Date().toISOString(),
+                distance: Math.floor(dist),
+                entered: dist <= radius,
+                lat: Math.round(userLat * 1000) / 1000,
+                lng: Math.round(userLng * 1000) / 1000
+            });
+
+            /* 更新本地記錄 */
+            localStorage.setItem("lastLogTime", nowTs);
+            localStorage.setItem(dailyCountKey, dailyCount + 1);
+        }
+    }
+
 }
 
 /*--------------------------------------------------------------------
