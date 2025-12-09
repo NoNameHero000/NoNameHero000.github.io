@@ -4,32 +4,78 @@
 <meta charset="utf-8">
 <title>今日擺攤位置</title>
 
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-    body { font-family: Arial; padding: 10px; }
-    #map { height: 380px; margin-top: 10px; }
-    #msg { font-size: 18px; margin-top: 10px; }
-    #navBtn { 
-        padding: 12px; 
-        background: #0078ff; 
-        color: white; 
-        border: none; 
-        width: 100%; 
-        margin-top: 10px; 
-        font-size: 18px;
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+        overflow: hidden;
+    }
+
+    /* 全螢幕地圖 */
+    #map {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 1;
+    }
+
+    /* 上方提示卡 */
+    #infoCard {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: calc(100% - 40px);
+        max-width: 500px;
+        background: rgba(0,0,0,0.65);
+        color: white;
+        padding: 15px 18px;
+        border-radius: 10px;
+        font-size: 16px;
+        line-height: 1.4em;
+        z-index: 10;
+        backdrop-filter: blur(5px);
+        text-align: center;
+    }
+
+    /* 底部導航按鈕 */
+    #navBtn {
+        position: fixed;
+        bottom: 25px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: calc(100% - 60px);
+        max-width: 500px;
+        padding: 15px;
+        font-size: 20px;
+        border-radius: 12px;
+        border: none;
+        background: #1e90ff;
+        color: white;
+        font-weight: bold;
         display: none;
-        border-radius: 6px;
+        z-index: 10;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.25);
     }
 </style>
-
 </head>
 <body>
 
-<h2>今日營業資訊</h2>
-<div id="msg">載入中...</div>
+<!-- 上方提示卡 -->
+<div id="infoCard">正在取得你的所在位置…</div>
+
+<!-- 地圖 -->
 <div id="map"></div>
+
+<!-- 導航按鈕（進圈後顯示） -->
 <button id="navBtn">開始導航</button>
 
 <script type="module">
@@ -47,42 +93,44 @@ if (!uuid) {
     localStorage.setItem("uuid", uuid);
 }
 
-/* 讀取店家設定 */
+/* 讀取基本設定（不含 hint） */
 const { data: cfg, error } = await supabase
     .from("location_config")
-    .select("*")
+    .select("lat, lng, radius")
     .eq("id", 1)
     .single();
 
 if (error) {
-    document.getElementById("msg").innerText = "無法讀取位置設定。";
+    document.getElementById("infoCard").innerText = "讀取設定失敗。";
     throw error;
 }
 
 const storeLat = cfg.lat;
 const storeLng = cfg.lng;
-const radius = cfg.radius;
-const hint = cfg.hint;
+const radius   = cfg.radius;
 
-document.getElementById("msg").innerText = hint;
-
-/* 判斷是否封鎖 */
+/* 黑名單檢查 */
 const { data: blocked } = await supabase
     .from("blocked_uuids")
     .select("*")
     .eq("uuid", uuid);
 
 if (blocked && blocked.length > 0) {
-    document.getElementById("msg").innerHTML =
-        "⚠ 你已被限制查看位置<br>如有問題請聯絡店家。";
+    document.getElementById("infoCard").innerHTML =
+        "⚠ 你已被限制查看位置。";
     throw new Error("blocked");
 }
 
-/* Leaflet 地圖 */
-const map = L.map("map").setView([storeLat, storeLng], 16);
+/* Leaflet map */
+const map = L.map("map", {
+    zoomControl: false
+}).setView([storeLat, storeLng], 17);
+
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-L.marker([storeLat, storeLng]).addTo(map);
+const storeMarker = L.marker([storeLat, storeLng]).addTo(map);
+storeMarker.bindPopup(`<b>店家位置</b><br><a href="https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}" target="_blank">在 Google Maps 打開</a>`);
+
 L.circle([storeLat, storeLng], {
     radius: radius,
     color: "blue",
@@ -91,17 +139,20 @@ L.circle([storeLat, storeLng], {
 }).addTo(map);
 
 let userMarker = null;
+let hintLoaded = false;
+let hintText = "";
 
-/* watchPosition（即時更新） */
+/* GPS 追蹤 */
 navigator.geolocation.watchPosition(async pos => {
 
     const userLat = pos.coords.latitude;
     const userLng = pos.coords.longitude;
 
+    /* 顯示用戶 marker */
     if (!userMarker) {
         userMarker = L.marker([userLat, userLng], {
             icon: L.divIcon({
-                html: '<div style="width:12px;height:12px;background:blue;border-radius:50%;"></div>',
+                html: '<div style="width:14px;height:14px;background:#1e90ff;border-radius:50%;border:2px solid white;"></div>',
                 className: ""
             })
         }).addTo(map);
@@ -109,24 +160,38 @@ navigator.geolocation.watchPosition(async pos => {
         userMarker.setLatLng([userLat, userLng]);
     }
 
-    const dist = distance(userLat, userLng, storeLat, storeLng);
+    const dist = getDistance(userLat, userLng, storeLat, storeLng);
 
     if (dist <= radius) {
-        document.getElementById("msg").innerHTML =
-            `🎉 你已進入附近！（距離：${Math.floor(dist)} 公尺）`;
 
-        const navBtn = document.getElementById("navBtn");
-        navBtn.style.display = "block";
-        navBtn.onclick = () => {
+        /* 第一次進圈 → 取 hint */
+        if (!hintLoaded) {
+            const r = await supabase
+                .from("location_config")
+                .select("hint")
+                .eq("id", 1)
+                .single();
+
+            hintText = r.data?.hint || "";
+            hintLoaded = true;
+        }
+
+        document.getElementById("infoCard").innerHTML =
+            `🎉 已抵達營業區域（距離 ${Math.floor(dist)} 公尺）<br>${hintText}`;
+
+        const btn = document.getElementById("navBtn");
+        btn.style.display = "block";
+        btn.onclick = () => {
             window.location.href =
                 `https://www.google.com/maps/dir/?api=1&destination=${storeLat},${storeLng}`;
         };
+
     } else {
-        document.getElementById("msg").innerHTML =
-            `距離店家約 ${Math.floor(dist)} 公尺，請再靠近一些即可查看導航。`;
+        document.getElementById("infoCard").innerHTML =
+            `你距離店家約 <b>${Math.floor(dist)}</b> 公尺，再靠近即可查看詳細位置。`;
     }
 
-    /* 寫入 access_logs */
+    /* 寫入 log */
     await supabase.from("access_logs").insert({
         uuid,
         timestamp: new Date().toISOString(),
@@ -139,7 +204,7 @@ navigator.geolocation.watchPosition(async pos => {
 });
 
 /* 距離公式 */
-function distance(lat1, lon1, lat2, lon2) {
+function getDistance(lat1, lon1, lat2, lon2) {
     function toRad(v){ return v * Math.PI / 180; }
     const R = 6371000;
     const dLat = toRad(lat2-lat1);
@@ -149,7 +214,6 @@ function distance(lat1, lon1, lat2, lon2) {
         Math.sin(dLon/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-
 </script>
 
 </body>
