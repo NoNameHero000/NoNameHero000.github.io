@@ -167,7 +167,7 @@ document.getElementById("closeTip").onclick = () => {
 /* 取得店家位置設定 */
 const { data: cfg, error } = await supabase
     .from("location_config")
-    .select("lat, lng, radius, created_at")
+    .select("lat, lng, radius, updated_at")
     .eq("id", 1)
     .single();
 
@@ -181,7 +181,7 @@ const storeLng = cfg.lng;
 const radius = cfg.radius;
 
 /* 顯示後台最後設定時間 */
-let dt = new Date(cfg.created_at);
+let dt = new Date(cfg.updated_at);
 document.getElementById("updateTime").innerText =
     `闆娘最後地標設定時間(請自行判斷是否有出攤)：${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
 
