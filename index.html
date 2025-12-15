@@ -126,7 +126,7 @@
 </div>
 
 <!-- 最後 GPS 更新時間 -->
-<div id="updateTime">闆娘地標最新更新時間(請自行透過時間判斷是否出攤)：--
+<div id="updateTime">闆娘地標最新更新時間：--
 
 <!-- 主提示卡 -->
 <div id="infoCard">正在取得你的所在位置…</div>
@@ -183,7 +183,7 @@ const radius = cfg.radius;
 /* 顯示後台最後設定時間 */
 let dt = new Date(cfg.updated_at);
 document.getElementById("updateTime").innerText =
-    `闆娘最後地標設定時間(請自行判斷是否有出攤)：${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    `闆娘最後地標設定時間：${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
 
 /* 黑名單檢查 */
 const { data: blocked } = await supabase
